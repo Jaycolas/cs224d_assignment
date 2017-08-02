@@ -22,7 +22,7 @@ class Config(object):
   batch_size = 64
   label_size = 5
   hidden_size = 100
-  max_epochs = 1 #For debug, set it to 1 temporarily
+  max_epochs = 24 #For debug, set it to 1 temporarily
   early_stopping = 2
   dropout = 0.9
   lr = 0.001
@@ -119,7 +119,7 @@ class NERModel(LanguageModel):
       feed_dict: The feed dictionary mapping from placeholders to values.
     """
     ### YOUR CODE HERE
-    if label_batch:
+    if label_batch is not None:
       feed_dict = {
         self.input_placeholder: input_batch,
         self.labels_placeholder: label_batch,

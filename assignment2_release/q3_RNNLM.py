@@ -8,6 +8,8 @@ from copy import deepcopy
 from utils import calculate_perplexity, get_ptb_dataset, Vocab
 from utils import ptb_iterator, sample
 
+from q2_initialization import xavier_weight_init
+
 import tensorflow as tf
 from tensorflow.python.ops.seq2seq import sequence_loss
 from model import LanguageModel
@@ -15,6 +17,19 @@ from model import LanguageModel
 # Let's set the parameters of our model
 # http://arxiv.org/pdf/1409.2329v4.pdf shows parameters that would achieve near
 # SotA numbers
+
+def variable_summaries(var):
+  """Attach a lot of summaries to a Tensor (for TensorBoard visualization)."""
+  with tf.name_scope('summaries'):
+    mean = tf.reduce_mean(var)
+    tf.summary.scalar('mean', mean)
+    with tf.name_scope('stddev'):
+      stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
+    tf.summary.scalar('stddev', stddev)
+    tf.summary.scalar('max', tf.reduce_max(var))
+    tf.summary.scalar('min', tf.reduce_min(var))
+    tf.summary.histogram('histogram', var)
+
 
 class Config(object):
   """Holds model hyperparams and data information.
@@ -27,7 +42,7 @@ class Config(object):
   embed_size = 50
   hidden_size = 100
   num_steps = 10
-  max_epochs = 16
+  max_epochs = 1 #Set it to 1 for debug
   early_stopping = 2
   dropout = 0.9
   lr = 0.001
@@ -79,7 +94,9 @@ class RNNLM_Model(LanguageModel):
     (Don't change the variable names)
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    self.input_placeholder = tf.placeholder(tf.int32, [None, self.config.num_steps], name='input')
+    self.labels_placeholder = tf.placeholder(tf.float32, [None, self.config.num_steps], name='labels')
+    self.dropout_placeholder = tf.placeholder(tf.float32, name='dropout')
     ### END YOUR CODE
   
   def add_embedding(self):
@@ -101,9 +118,18 @@ class RNNLM_Model(LanguageModel):
     # The embedding lookup is currently only implemented for the CPU
     with tf.device('/cpu:0'):
       ### YOUR CODE HERE
-      raise NotImplementedError
+      with tf.variable_scope('embedding'):
+        L = tf.get_variable('embeddings', shape=[len(self.vocab), self.config.embed_size], initializer=xavier_weight_init())
+        variable_summaries(L)
+        window = tf.nn.embedding_lookup(params=L, ids=self.input_placeholder) # windows size will be (input_num, num_steps, embed_size)
+        #split0, split1, split2 = tf.split(value, num_or_size_splits=3, axis=1)
+        input_split = tf.split(value=window, num_or_size_splits=1, axis=1)
+        inputs=[]
+        for input in input_split:
+          inputs.append(input)
+        variable_summaries(inputs)
       ### END YOUR CODE
-      return inputs
+        return inputs
 
   def add_projection(self, rnn_outputs):
     """Adds a projection layer.
@@ -125,7 +151,21 @@ class RNNLM_Model(LanguageModel):
                (batch_size, len(vocab)
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    with tf.variable_scope('add_projection'):
+      U = tf.get_variable(name='U', shape=[self.config.hidden_size, len(self.vocab)], initializer=xavier_weight_init())
+      b_2 = tf.get_variable(name='b_2', shape=[len(self.vocab)], initializer=xavier_weight_init())
+      variable_summaries(U)
+      variable_summaries(b_2)
+
+      outputs_split = tf.split(value=rnn_outputs, axis=0, num_or_size_splits=1)
+
+      outputs=[]
+      for output in outputs_split:
+        output = tf.squeeze(output, axis=0)
+        output = tf.matmul(output, U) + b_2
+        outputs.append(output)
+
+
     ### END YOUR CODE
     return outputs
 
@@ -140,8 +180,12 @@ class RNNLM_Model(LanguageModel):
       loss: A 0-d tensor (scalar)
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
-    ### END YOUR CODE
+    with tf.variable_scope('add_loss_op'):
+      batch_size, num_seq = tf.shape(self.labels_placeholder)
+      weight_mask = tf.ones(shape=[batch_size, num_seq])
+      loss = tf.python.ops.seq2seq.sequence_loss(logits=output, target=self.labels_placeholder, weights=weight_mask, name='seq_loss')
+      variable_summaries(loss)
+      #TODO:Do we still need l2 regulation?
     return loss
 
   def add_training_op(self, loss):
@@ -164,13 +208,14 @@ class RNNLM_Model(LanguageModel):
       train_op: The Op for training.
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    optimizer = tf.train.AdamOptimizer(self.config.lr)
+    train_op = optimizer.minimize(loss)
     ### END YOUR CODE
     return train_op
   
   def __init__(self, config):
     self.config = config
-    self.load_data(debug=False)
+    self.load_data(debug=True)
     self.add_placeholders()
     self.inputs = self.add_embedding()
     self.rnn_outputs = self.add_model(self.inputs)
@@ -226,7 +271,17 @@ class RNNLM_Model(LanguageModel):
                a tensor of shape (batch_size, hidden_size)
     """
     ### YOUR CODE HERE
-    raise NotImplementedError
+    with tf.variable_scope('RNN'):
+      self.initial_state = tf.zeros(shape=[self.config.batch_size, self.config.hidden_size])
+      self.final_state = self.initial_state
+
+      inputs_dropout = tf.nn.dropout(inputs, keep_prob=self.config.dropout)
+      H = tf.get_variable(name='H', shape=[self.config.hidden_size,self.config.hidden_size], initializer=xavier_weight_init())
+      I = tf.get_variable(name='I', shape=[self.config.embed_size,self.config.hidden_size], initializer=xavier_weight_init())
+      b_1 = tf.get_variable(name='b_1', shape=[self.config.hidden_size,],initializer=xavier_weight_init())
+      for i in len(inputs):
+
+
     ### END YOUR CODE
     return rnn_outputs
 
