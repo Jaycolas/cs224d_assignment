@@ -231,6 +231,13 @@ class RNNLM_Model(LanguageModel):
     self.calculate_loss = self.add_loss_op(output)
     self.train_step = self.add_training_op(self.calculate_loss)
 
+    # Merge all the summaries and write them out to /summary (by default)
+    self.merged = tf.summary.merge_all()
+    self.train_writer = tf.summary.FileWriter('./summary/train',
+                                         sess.graph)
+    self.validate_writer = tf.summary.FileWriter('./summary/validate')
+    self.test_writer = tf.summary.FileWriter('/summary/test')
+
 
   def add_model(self, inputs):
     """Creates the RNN LM model.
@@ -271,17 +278,31 @@ class RNNLM_Model(LanguageModel):
                a tensor of shape (batch_size, hidden_size)
     """
     ### YOUR CODE HERE
-    with tf.variable_scope('RNN'):
+    with tf.variable_scope('RNNInputsDropout'):
+      inputs = [tf.nn.dropout(x, keep_prob=self.dropout_placeholder) for x in inputs]
+
+    rnn_outputs = []
+    with tf.variable_scope('RNN') as scope:
       self.initial_state = tf.zeros(shape=[self.config.batch_size, self.config.hidden_size])
-      self.final_state = self.initial_state
+      state = self.initial_state
 
-      inputs_dropout = tf.nn.dropout(inputs, keep_prob=self.config.dropout)
-      H = tf.get_variable(name='H', shape=[self.config.hidden_size,self.config.hidden_size], initializer=xavier_weight_init())
-      I = tf.get_variable(name='I', shape=[self.config.embed_size,self.config.hidden_size], initializer=xavier_weight_init())
-      b_1 = tf.get_variable(name='b_1', shape=[self.config.hidden_size,],initializer=xavier_weight_init())
-      for i in len(inputs):
+      H = tf.Variables(name='H', shape=[self.config.hidden_size,self.config.hidden_size], initializer=xavier_weight_init())
+      I = tf.Variables(name='I', shape=[self.config.embed_size,self.config.hidden_size], initializer=xavier_weight_init())
+      b_1 = tf.Variables(name='b_1', shape=[self.config.hidden_size,],initializer=xavier_weight_init())
+      variable_summaries(H)
+      variable_summaries(I)
+      variable_summaries(b_1)
+      for step,input in enumerate(inputs):
+        if step!=0:
+          scope.reuse_variables()
 
+        state = tf.nn.sigmoid(tf.matmul(state, H) + tf.matmul(input, I) + b_1)
+        rnn_outputs.append(state)
 
+      self.final_state = state
+
+    with tf.variable_scope('RNNOutputsDropout')
+      rnn_outputs = [tf.nn.dropout(x, keep_prob = self.dropout_placeholder) for x in rnn_outputs]
     ### END YOUR CODE
     return rnn_outputs
 
@@ -303,8 +324,10 @@ class RNNLM_Model(LanguageModel):
               self.labels_placeholder: y,
               self.initial_state: state,
               self.dropout_placeholder: dp}
-      loss, state, _ = session.run(
-          [self.calculate_loss, self.final_state, train_op], feed_dict=feed)
+      loss, state, summary _ = session.run(
+          [self.calculate_loss, self.final_state, train_op, self.merged], feed_dict=feed)
+      train_writer.add_summary(summary, step)
+
       total_loss.append(loss)
       if verbose and step % verbose == 0:
           sys.stdout.write('\r{} / {} : pp = {}'.format(
@@ -363,6 +386,8 @@ def test_RNNLM():
     # This instructs gen_model to reuse the same variables as the model above
     scope.reuse_variables()
     gen_model = RNNLM_Model(gen_config)
+
+
 
   init = tf.initialize_all_variables()
   saver = tf.train.Saver()
