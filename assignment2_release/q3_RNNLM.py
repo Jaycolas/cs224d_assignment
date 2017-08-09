@@ -11,7 +11,6 @@ from utils import ptb_iterator, sample
 from q2_initialization import xavier_weight_init
 
 import tensorflow as tf
-from tensorflow.python.ops.seq2seq import sequence_loss
 from model import LanguageModel
 
 # Let's set the parameters of our model
@@ -157,11 +156,8 @@ class RNNLM_Model(LanguageModel):
       variable_summaries(U)
       variable_summaries(b_2)
 
-      outputs_split = tf.split(value=rnn_outputs, axis=0, num_or_size_splits=1)
-
       outputs=[]
-      for output in outputs_split:
-        output = tf.squeeze(output, axis=0)
+      for output in rnn_outputs:
         output = tf.matmul(output, U) + b_2
         outputs.append(output)
 
@@ -227,6 +223,7 @@ class RNNLM_Model(LanguageModel):
     self.predictions = [tf.nn.softmax(tf.cast(o, 'float64')) for o in self.outputs]
     # Reshape the output into len(vocab) sized chunks - the -1 says as many as
     # needed to evenly divide
+    print self.outputs
     output = tf.reshape(tf.concat(1, self.outputs), [-1, len(self.vocab)])
     self.calculate_loss = self.add_loss_op(output)
     self.train_step = self.add_training_op(self.calculate_loss)
@@ -278,30 +275,32 @@ class RNNLM_Model(LanguageModel):
                a tensor of shape (batch_size, hidden_size)
     """
     ### YOUR CODE HERE
+    print inputs
     with tf.variable_scope('RNNInputsDropout'):
       inputs = [tf.nn.dropout(x, keep_prob=self.dropout_placeholder) for x in inputs]
 
+    print inputs
     rnn_outputs = []
     with tf.variable_scope('RNN') as scope:
       self.initial_state = tf.zeros(shape=[self.config.batch_size, self.config.hidden_size])
       state = self.initial_state
 
-      H = tf.Variables(name='H', shape=[self.config.hidden_size,self.config.hidden_size], initializer=xavier_weight_init())
-      I = tf.Variables(name='I', shape=[self.config.embed_size,self.config.hidden_size], initializer=xavier_weight_init())
-      b_1 = tf.Variables(name='b_1', shape=[self.config.hidden_size,],initializer=xavier_weight_init())
+      H = tf.get_variable(name='H', shape=[self.config.hidden_size,self.config.hidden_size], initializer=xavier_weight_init())
+      I = tf.get_variable(name='I', shape=[self.config.embed_size,self.config.hidden_size], initializer=xavier_weight_init())
+      b_1 = tf.get_variable(name='b_1', shape=[self.config.hidden_size,],initializer=xavier_weight_init())
       variable_summaries(H)
       variable_summaries(I)
       variable_summaries(b_1)
       for step,input in enumerate(inputs):
         if step!=0:
           scope.reuse_variables()
-
+        input=input[0]
         state = tf.nn.sigmoid(tf.matmul(state, H) + tf.matmul(input, I) + b_1)
         rnn_outputs.append(state)
 
       self.final_state = state
 
-    with tf.variable_scope('RNNOutputsDropout')
+    with tf.variable_scope('RNNOutputsDropout'):
       rnn_outputs = [tf.nn.dropout(x, keep_prob = self.dropout_placeholder) for x in rnn_outputs]
     ### END YOUR CODE
     return rnn_outputs
@@ -324,7 +323,7 @@ class RNNLM_Model(LanguageModel):
               self.labels_placeholder: y,
               self.initial_state: state,
               self.dropout_placeholder: dp}
-      loss, state, summary _ = session.run(
+      loss, state, summary, _ = session.run(
           [self.calculate_loss, self.final_state, train_op, self.merged], feed_dict=feed)
       train_writer.add_summary(summary, step)
 
@@ -362,7 +361,11 @@ def generate_text(session, model, config, starting_text='<eos>',
   tokens = [model.vocab.encode(word) for word in starting_text.split()]
   for i in xrange(stop_length):
     ### YOUR CODE HERE
-    raise NotImplementedError
+    feed = {model.input_placeholder: [tokens[-1:]],
+            model.initial_state: state,
+            model.dropout_placeholder: 1}
+
+    y_pred, _ = session.run([self.predictions,model.final_state], feed_dict=feed)
     ### END YOUR CODE
     next_word_idx = sample(y_pred[0], temperature=temp)
     tokens.append(next_word_idx)
